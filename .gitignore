@@ -1,0 +1,65 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+*.wheel
+
+# Virtual environment
+venv/
+ENV/
+env/
+.venv/
+venv.bak/
+env.bak/
+ENV.bak/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# macOS
+.DS_Store
+
+# VSCode
+.vscode/
+
+# If you use dotenv for environment variables
+.env
+
+# (Optional) Ignore other local or temporary files
+*.log
+*.tmp
+*.temp
+
+*.xlsx

@@ -6,6 +6,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.utils.dataframe import dataframe_to_rows
 from openpyxl.formatting.rule import CellIsRule
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 def create_shipping_template(filename="shipping_order_template.xlsx"):
     # Create a workbook
@@ -68,8 +69,7 @@ def create_shipping_template(filename="shipping_order_template.xlsx"):
         "5. Dates should be entered in the format YYYY-MM-DD (e.g., 2025-04-15).",
         "6. Do not modify the header row or column structure.",
         "7. Do not merge cells as this will affect our processing system.",
-        "8. An example order has been filled in the first row for your reference.",
-        "9. For any questions or assistance, please contact support@shippingcompany.com",
+        "8. For any questions or assistance, please contact support@shippingcompany.com",
         "",
         "COLUMN DESCRIPTIONS:",
         ""
@@ -118,7 +118,10 @@ def create_shipping_template(filename="shipping_order_template.xlsx"):
         ("destination_country", "Country for delivery (select from dropdown)"),
         ("destination_postal_code", "ZIP/Postal code for delivery location"),
         ("destination_contact", "Contact person at delivery location"),
-        ("destination_phone", "Phone number at delivery location")
+        ("destination_phone", "Phone number at delivery location"),
+        ("", ""),
+        ("Additional Information", ""),
+        ("special_instructions", "Any special requirements or notes for this shipment")
     ]
     
     row = 18
@@ -190,7 +193,8 @@ def create_shipping_template(filename="shipping_order_template.xlsx"):
         "Order Details": [],
         "Shipment Details": [],
         "Origin Information": [],
-        "Destination Information": []
+        "Destination Information": [],
+        "Additional Information": []
     }
     
     col_index = 1
@@ -198,22 +202,32 @@ def create_shipping_template(filename="shipping_order_template.xlsx"):
         headers.append(col["name"])
         
         # Track section ranges for formatting
-        if col["name"].startswith("customer"):
+        if col["name"] in ["customer_code", "primary_contact", "contact_email", "contact_phone"]:
             section_ranges["Customer Information"].append(col_index)
-        elif col["name"].startswith("order") or col["name"] in ["request_date", "pickup_date", "delivery_date", "service_type", "special_instructions"]:
+        elif col["name"] in ["po_number", "pickup_date", "delivery_date"]:
             section_ranges["Order Details"].append(col_index)
-        elif col["name"] in ["item_description", "quantity", "weight_kg", "length_cm", "width_cm", "height_cm", 
-                            "packaging_type", "hazardous", "declared_value", "currency"]:
+        elif col["name"] in ["hs_code", "goods_description", "quantity", "weight_kg", "length_cm", "width_cm", "height_cm", 
+                           "hazardous", "declared_value"]:
             section_ranges["Shipment Details"].append(col_index)
         elif col["name"].startswith("origin"):
             section_ranges["Origin Information"].append(col_index)
         elif col["name"].startswith("destination"):
             section_ranges["Destination Information"].append(col_index)
+        elif col["name"] == "special_instructions":
+            section_ranges["Additional Information"].append(col_index)
             
         col_index += 1
     
+    # Format column headers to be more human-readable
+    formatted_headers = []
+    for header in headers:
+        # Convert snake_case to Title Case with spaces
+        words = header.split('_')
+        formatted_header = ' '.join(word.capitalize() for word in words)
+        formatted_headers.append(formatted_header)
+    
     # Add column headers to the orders sheet
-    for i, header in enumerate(headers, 1):
+    for i, header in enumerate(formatted_headers, 1):
         cell = orders_sheet.cell(row=2, column=i, value=header)
         cell.font = header_font
         cell.fill = header_fill
@@ -230,52 +244,45 @@ def create_shipping_template(filename="shipping_order_template.xlsx"):
                 cell.fill = required_fill
     
     # Add section headers
-    section_start_cols = {
-        "Customer Information": min(section_ranges["Customer Information"]),
-        "Order Details": min(section_ranges["Order Details"]),
-        "Shipment Details": min(section_ranges["Shipment Details"]),
-        "Origin Information": min(section_ranges["Origin Information"]),
-        "Destination Information": min(section_ranges["Destination Information"])
-    }
+    section_start_cols = {}
+    section_end_cols = {}
     
-    section_end_cols = {
-        "Customer Information": max(section_ranges["Customer Information"]),
-        "Order Details": max(section_ranges["Order Details"]),
-        "Shipment Details": max(section_ranges["Shipment Details"]),
-        "Origin Information": max(section_ranges["Origin Information"]),
-        "Destination Information": max(section_ranges["Destination Information"])
-    }
+    for section, cols in section_ranges.items():
+        if cols:  # Only process sections with columns
+            section_start_cols[section] = min(cols)
+            section_end_cols[section] = max(cols)
     
     row_idx = 1
     for section, start_col in section_start_cols.items():
         end_col = section_end_cols[section]
-        orders_sheet.merge_cells(start_row=row_idx, start_column=start_col, end_row=row_idx, end_column=end_col)
+        
+        # First set the value on the cell
         cell = orders_sheet.cell(row=row_idx, column=start_col, value=section)
         cell.font = subheader_font
         cell.fill = subheader_fill
         cell.alignment = Alignment(horizontal="center")
+        
+        # Then merge the cells if needed
+        if start_col != end_col:
+            orders_sheet.merge_cells(start_row=row_idx, start_column=start_col, end_row=row_idx, end_column=end_col)
     
     # Add data validations
-    # Note: Service Type and Packaging Type validations removed as requested
-    
     # Country validation
     origin_country_col = [i+1 for i, col in enumerate(columns) if col["name"] == "origin_country"][0]
-    origin_country_dv = DataValidation(type="list", formula1=f"=Reference!$C$2:$C${len(countries)+1}", allow_blank=False)
+    origin_country_dv = DataValidation(type="list", formula1=f"=Reference!$A$2:$A${len(countries)+1}", allow_blank=False)
     orders_sheet.add_data_validation(origin_country_dv)
     origin_country_dv.add(f"{get_column_letter(origin_country_col)}3:{get_column_letter(origin_country_col)}102")
     
     dest_country_col = [i+1 for i, col in enumerate(columns) if col["name"] == "destination_country"][0]
-    dest_country_dv = DataValidation(type="list", formula1=f"=Reference!$C$2:$C${len(countries)+1}", allow_blank=False)
+    dest_country_dv = DataValidation(type="list", formula1=f"=Reference!$A$2:$A${len(countries)+1}", allow_blank=False)
     orders_sheet.add_data_validation(dest_country_dv)
     dest_country_dv.add(f"{get_column_letter(dest_country_col)}3:{get_column_letter(dest_country_col)}102")
     
     # Hazardous validation
     hazardous_col = [i+1 for i, col in enumerate(columns) if col["name"] == "hazardous"][0]
-    hazardous_dv = DataValidation(type="list", formula1=f"=Reference!$D$2:$D${len(hazardous_options)+1}", allow_blank=False)
+    hazardous_dv = DataValidation(type="list", formula1=f"=Reference!$B$2:$B${len(hazardous_options)+1}", allow_blank=False)
     orders_sheet.add_data_validation(hazardous_dv)
     hazardous_dv.add(f"{get_column_letter(hazardous_col)}3:{get_column_letter(hazardous_col)}102")
-    
-    # Currency validation removed as requested
     
     # Number validation for numeric fields
     for i, col in enumerate(columns):
@@ -295,51 +302,74 @@ def create_shipping_template(filename="shipping_order_template.xlsx"):
                 cell = orders_sheet.cell(row=row_idx, column=i+1)
                 cell.number_format = "YYYY-MM-DD"
     
-    # Add example row
+    # Create an example row in the Instructions sheet instead
+    example_row_header = "EXAMPLE ORDER:"
+    row = instructions_sheet.max_row + 2  # Add two rows after last content
+    instructions_sheet.cell(row=row, column=1, value=example_row_header).font = subheader_font
+    
     example_data = {
-        "customer_code": "CUST12345",
-        "primary_contact": "John Smith",
-        "contact_email": "john.smith@abcshipping.com",
-        "contact_phone": "+1-555-123-4567",
-        
-        "po_number": "PO78901",
-        "pickup_date": "2025-04-05",
-        "delivery_date": "2025-04-12",
-        
-        "hs_code": "8471.30",
-        "goods_description": "Electronic components - laptop parts",
-        "quantity": 5,
-        "weight_kg": 75,
-        "length_cm": 120,
-        "width_cm": 80,
-        "height_cm": 60,
-        "hazardous": "No",
-        "declared_value": 5000,
-        "special_instructions": "Please handle with care. Call recipient before delivery.",
-        
-        "origin_address": "123 Industrial Parkway",
-        "origin_city": "Boston",
-        "origin_state": "MA",
-        "origin_country": "USA",
-        "origin_postal_code": "02110",
-        "origin_contact": "Sarah Johnson",
-        "origin_phone": "+1-555-987-6543",
-        
-        "destination_address": "456 Commerce Street",
-        "destination_city": "Los Angeles",
-        "destination_state": "CA",
-        "destination_country": "USA",
-        "destination_postal_code": "90001",
-        "destination_contact": "Michael Brown",
-        "destination_phone": "+1-555-789-0123"
+        "Customer Code": "CUST12345",
+        "Primary Contact": "John Smith",
+        "Contact Email": "john.smith@abcshipping.com",
+        "Contact Phone": "+1-555-123-4567",
+        "PO Number": "PO78901",
+        "Pickup Date": "2025-04-05",
+        "Delivery Date": "2025-04-12",
+        "HS Code": "8471.30",
+        "Goods Description": "Electronic components - laptop parts",
+        "Quantity": "5",
+        "Weight Kg": "75",
+        "Length Cm": "120",
+        "Width Cm": "80",
+        "Height Cm": "60",
+        "Hazardous": "No",
+        "Declared Value": "5000 USD",
+        "Origin Address": "123 Industrial Parkway",
+        "Origin City": "Boston",
+        "Origin State": "MA",
+        "Origin Country": "USA",
+        "Origin Postal Code": "02110",
+        "Origin Contact": "Sarah Johnson",
+        "Origin Phone": "+1-555-987-6543",
+        "Destination Address": "456 Commerce Street",
+        "Destination City": "Los Angeles",
+        "Destination State": "CA",
+        "Destination Country": "USA",
+        "Destination Postal Code": "90001",
+        "Destination Contact": "Michael Brown",
+        "Destination Phone": "+1-555-789-0123",
+        "Special Instructions": "Please handle with care. Call recipient before delivery."
     }
     
-    for i, col in enumerate(columns):
-        if col["name"] in example_data:
-            orders_sheet.cell(row=3, column=i+1, value=example_data[col["name"]])
+    row += 1
+    for key, value in example_data.items():
+        instructions_sheet.cell(row=row, column=1, value=key).font = Font(bold=True)
+        instructions_sheet.cell(row=row, column=2, value=value)
+        row += 1
     
-    # Freeze header rows
-    orders_sheet.freeze_panes = orders_sheet["A3"]
+    # Convert the range to an Excel Table
+    # Calculate table range (starts at A2 and extends to the last column and row 102)
+    last_column_letter = get_column_letter(len(columns))
+    table_range = f"A2:{last_column_letter}102"
+    
+    # Create the table
+    table = Table(displayName="ShippingOrdersTable", ref=table_range)
+    
+    # Add a default style to the table
+    style = TableStyleInfo(
+        name="TableStyleMedium2", 
+        showFirstColumn=False,
+        showLastColumn=False, 
+        showRowStripes=True, 
+        showColumnStripes=False
+    )
+    table.tableStyleInfo = style
+    
+    # Add the table to the worksheet
+    orders_sheet.add_table(table)
+    
+    # Freeze header rows - freeze at row 3 to keep headers visible when scrolling
+    orders_sheet.freeze_panes = "A3"
     
     # Set title and page setup
     orders_sheet.oddHeader.center.text = "Shipping Order Template"
