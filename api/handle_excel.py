@@ -15,7 +15,7 @@ import os
 
 # Configure logging
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)  # Changed from INFO to DEBUG for more detailed logging
+logger.setLevel(logging.INFO)  # Changed from DEBUG to INFO to reduce logging
 
 # Handler for Vercel logs
 if not logger.handlers:
@@ -58,7 +58,6 @@ class BookingFormData:
         container_type_3: str = None,
         container_count_3: int = None
     ):
-        logger.debug(f"[{REQUEST_ID}] Creating BookingFormData object for PO: {po_number}")
         # Main fields
         self.customerCode = "AUTO"  # Default value since it's been removed from the template
         self.factoryEmail = contact_email
@@ -69,26 +68,12 @@ class BookingFormData:
         self.deliveryAddress = destination_address
         
         # Extract country from address for POL/POD (simplified approach)
-        # Assuming the country is the last part of the address
-        logger.debug(f"[{REQUEST_ID}] Extracting country from origin address: {origin_address}")
         self.pol = self._extract_country(origin_address)
-        logger.debug(f"[{REQUEST_ID}] Extracted POL: {self.pol}")
-        
-        logger.debug(f"[{REQUEST_ID}] Extracting country from destination address: {destination_address}")
         self.pod = self._extract_country(destination_address)
-        logger.debug(f"[{REQUEST_ID}] Extracted POD: {self.pod}")
         
         # Format dates as ISO strings
-        logger.debug(f"[{REQUEST_ID}] Formatting date: {goods_completion_date}")
         self.cargoReadyDateISO = self._format_date(goods_completion_date)
-        logger.debug(f"[{REQUEST_ID}] Formatted cargoReadyDateISO: {self.cargoReadyDateISO}")
-        
-        logger.debug(f"[{REQUEST_ID}] Formatting date: {delivery_date}")
         self.goodsRequiredDateISO = self._format_date(delivery_date)
-        logger.debug(f"[{REQUEST_ID}] Formatted goodsRequiredDateISO: {self.goodsRequiredDateISO}")
-        
-        # Container details - modified to handle multiple container types
-        logger.debug(f"[{REQUEST_ID}] Setting container details - Primary Type: {container_type}, Count: {container_count}")
         
         # Build list of containers
         containers = []
@@ -102,7 +87,6 @@ class BookingFormData:
         
         # Add secondary container if provided
         if container_type_2 and container_count_2:
-            logger.debug(f"[{REQUEST_ID}] Adding additional container - Type: {container_type_2}, Count: {container_count_2}")
             containers.append({
                 "containerType": container_type_2,
                 "quantity": container_count_2
@@ -110,7 +94,6 @@ class BookingFormData:
         
         # Add tertiary container if provided
         if container_type_3 and container_count_3:
-            logger.debug(f"[{REQUEST_ID}] Adding additional container - Type: {container_type_3}, Count: {container_count_3}")
             containers.append({
                 "containerType": container_type_3,
                 "quantity": container_count_3
@@ -134,8 +117,8 @@ class BookingFormData:
         self.primaryContact = primary_contact
         self.contactPhone = contact_phone
         self.estimateCargoGrossWeight = estimate_cargo_gross_weight
-        
-        logger.debug(f"[{REQUEST_ID}] BookingFormData object created successfully for PO: {po_number}")
+        self.goodsDescription = goods_description
+        self.hazardous = hazardous
             
     def _extract_country(self, address: str) -> str:
         """
@@ -143,12 +126,10 @@ class BookingFormData:
         Simplistic approach - assumes country is the last part of the address.
         """
         if not address:
-            logger.warning(f"[{REQUEST_ID}] Empty address provided to _extract_country")
             return "Unknown"
-            
+        
         # Try to extract country from the last part of the address
         parts = [p.strip() for p in address.split(",")]
-        logger.debug(f"[{REQUEST_ID}] Address parts: {parts}")
         
         if parts:
             country_candidates = ["USA", "US", "United States", "Canada", "Mexico", "UK", 
@@ -157,65 +138,84 @@ class BookingFormData:
             # Check the last few parts for a country name
             for i in range(min(3, len(parts))):
                 part = parts[len(parts)-1-i]
-                logger.debug(f"[{REQUEST_ID}] Checking part: {part}")
                 for country in country_candidates:
                     if country.lower() in part.lower():
-                        logger.debug(f"[{REQUEST_ID}] Found country match: {country}")
                         return country
             # If no known country found, return the last part
-            logger.debug(f"[{REQUEST_ID}] No known country found, using last part: {parts[-1]}")
             return parts[-1]
         return "Unknown"
     
     def _format_date(self, date_str: str) -> str:
         """Convert date string to ISO format, supporting multiple formats"""
-        logger.debug(f"[{REQUEST_ID}] Attempting to format date: {date_str} (type: {type(date_str)})")
         if isinstance(date_str, str):
             for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y"):
                 try:
-                    logger.debug(f"[{REQUEST_ID}] Trying date format: {fmt}")
                     dt = datetime.strptime(date_str, fmt)
                     iso_format = dt.isoformat()
-                    logger.debug(f"[{REQUEST_ID}] Date formatted successfully to: {iso_format}")
                     return iso_format
                 except ValueError:
-                    logger.debug(f"[{REQUEST_ID}] Format {fmt} failed")
                     continue
         elif isinstance(date_str, datetime):
             iso_format = date_str.isoformat()
-            logger.debug(f"[{REQUEST_ID}] Date already datetime object, formatted to: {iso_format}")
             return iso_format
-            
+        
         # If we get here, return the original string and let the API validation handle it
-        logger.warning(f"[{REQUEST_ID}] Could not format date: {date_str}, returning as is")
         return date_str
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
-        logger.debug(f"[{REQUEST_ID}] Converting BookingFormData to dictionary for PO: {self.poNumber}")
+        # Create the containers object in the format required by JavaScript
+        containers = {
+            "containers": self.containerDetails["containers"],
+            "total_booking_price": "",  # Always blank
+            "price_matched": False,      # Default to False
+            "price_matched_at": datetime.now().isoformat()  # Current timestamp
+        }
+        
         result = {
-            "customerCode": self.customerCode,
-            "factoryEmail": self.factoryEmail,
-            "poNumber": self.poNumber,
-            "pickupAddress": self.pickupAddress,
-            "deliveryAddress": self.deliveryAddress,
-            "cargoReadyDateISO": self.cargoReadyDateISO,
-            "goodsRequiredDateISO": self.goodsRequiredDateISO,
             "pol": self.pol,
             "pod": self.pod,
-            "containerDetails": self.containerDetails,
-            "commodityCode": self.commodityCode,
+            "pickup_address": self.pickupAddress,
+            "delivery_address": self.deliveryAddress,
+            "cargo_ready_date": self.cargoReadyDateISO,
+            "goods_required_date": self.goodsRequiredDateISO,
+            "containers": containers,
+            "commodity": self.commodityCode,
+            "factory_contact_email": self.factoryEmail,
             "incoterms": self.incoterms,
             "message": self.message,
-            "service": self.service,
-            # Added additional fields that might be needed by the API
-            "contactPerson": self.primaryContact,
-            "contactEmail": self.factoryEmail,
-            "contactPhone": self.contactPhone,
-            "estimateCargoGrossWeight": self.estimateCargoGrossWeight
+            "user_id": "",  # Always blank
+            "company_code": self.customerCode,
+            "po_number": self.poNumber,
+            "stage": self.service or 'quote_requested'
         }
-        logger.debug(f"[{REQUEST_ID}] Dictionary created successfully for PO: {self.poNumber}")
         return result
+        
+    def to_dict_extended(self) -> Dict[str, Any]:
+        """Convert to extended dictionary for JSON serialization, including ALL collected fields"""
+        basic_dict = self.to_dict()
+        
+        # Add all additional fields that were collected but not included in the basic payload
+        extended_dict = {
+            **basic_dict,
+            "goods_description": getattr(self, "goodsDescription", ""),
+            "origin_contact": self.originContact,
+            "origin_phone": self.originPhone,
+            "destination_contact": self.destinationContact,
+            "destination_phone": self.destinationPhone,
+            "hazardous": getattr(self, "hazardous", "No"),
+            "contact_person": self.primaryContact,
+            "contact_phone": self.contactPhone,
+            "estimate_cargo_weight": self.estimateCargoGrossWeight,
+            "booking_data": {
+                "original_template": True,
+                "template_version": "2.0", 
+                "processed_at": datetime.now().isoformat(),
+                "request_id": REQUEST_ID
+            }
+        }
+        
+        return extended_dict
 
 
 def process_excel_file(file_content: bytes) -> pd.DataFrame:
@@ -228,91 +228,44 @@ def process_excel_file(file_content: bytes) -> pd.DataFrame:
     Returns:
         DataFrame containing the Orders sheet data
     """
-    logger.info(f"[{REQUEST_ID}] Starting Excel file processing")
     try:
-        # Log the size of the file
-        logger.debug(f"[{REQUEST_ID}] File content size: {len(file_content)} bytes")
-        
         # Load the workbook and select the appropriate sheet
-        logger.debug(f"[{REQUEST_ID}] Creating Excel file object")
         excel_file = pd.ExcelFile(BytesIO(file_content))
-        logger.debug(f"[{REQUEST_ID}] Available sheets: {excel_file.sheet_names}")
         
         sheet_name = "Orders" if "Orders" in excel_file.sheet_names else excel_file.sheet_names[0]
-        logger.info(f"[{REQUEST_ID}] Using sheet: {sheet_name}")
         
         # Read the Excel file
-        logger.debug(f"[{REQUEST_ID}] Reading Excel sheet: {sheet_name}")
         df = pd.read_excel(excel_file, sheet_name=sheet_name)
-        logger.info(f"[{REQUEST_ID}] Successfully loaded Excel file, found {len(df)} rows")
-        logger.debug(f"[{REQUEST_ID}] First few rows of data: {df.head().to_dict()}")
         
         # Skip any header rows (assuming data starts at row 3)
         if "Po Number" in df.columns or "PO Number" in df.columns:
             # Already has correct headers
-            logger.info(f"[{REQUEST_ID}] Headers already correctly formatted")
-            logger.debug(f"[{REQUEST_ID}] Columns: {df.columns.tolist()}")
+            pass
         elif any(col for col in df.iloc[0].values if isinstance(col, str) and "po number" in col.lower()):
             # Headers are in the first row
-            logger.info(f"[{REQUEST_ID}] Headers found in first row, reformatting")
-            logger.debug(f"[{REQUEST_ID}] First row values: {df.iloc[0].tolist()}")
             df.columns = df.iloc[0]
             df = df.drop(0).reset_index(drop=True)
-            logger.debug(f"[{REQUEST_ID}] New columns after reformatting: {df.columns.tolist()}")
         else:
             # Try to detect the header row
-            logger.info(f"[{REQUEST_ID}] Searching for header row")
             header_found = False
             for i in range(min(5, len(df))):
-                logger.debug(f"[{REQUEST_ID}] Checking row {i} for headers: {df.iloc[i].tolist()}")
                 if any(col for col in df.iloc[i].values if isinstance(col, str) and 
                       any(term in col.lower() for term in ["po number", "primary contact"])):
-                    logger.info(f"[{REQUEST_ID}] Header row found at index {i}")
                     df.columns = df.iloc[i]
                     df = df.drop(i).reset_index(drop=True)
                     header_found = True
-                    logger.debug(f"[{REQUEST_ID}] New columns after finding header: {df.columns.tolist()}")
                     break
-            
-            if not header_found:
-                logger.warning(f"[{REQUEST_ID}] Could not find header row, proceeding with existing columns")
-                logger.debug(f"[{REQUEST_ID}] Using default columns: {df.columns.tolist()}")
-        
-        # Log the columns found
-        logger.info(f"[{REQUEST_ID}] Found columns: {list(df.columns)}")
         
         # Clean up column names
-        original_columns = df.columns.tolist()
         df.columns = [col.strip() if isinstance(col, str) else col for col in df.columns]
-        logger.debug(f"[{REQUEST_ID}] Cleaned column names: {dict(zip(original_columns, df.columns.tolist()))}")
         
         # Remove empty rows
-        original_len = len(df)
         df = df.dropna(how='all')
-        logger.info(f"[{REQUEST_ID}] Removed {original_len - len(df)} empty rows, {len(df)} rows remaining")
-        
-        # Log data types
-        logger.debug(f"[{REQUEST_ID}] DataFrame data types: {df.dtypes}")
-        
-        # Check for important columns
-        important_columns = ["Po Number", "PO Number", "Primary Contact", "Contact Email"]
-        for col in important_columns:
-            if col in df.columns:
-                logger.info(f"[{REQUEST_ID}] Found important column: {col}")
-                sample_values = df[col].head(3).tolist()
-                logger.debug(f"[{REQUEST_ID}] Sample values for {col}: {sample_values}")
-            else:
-                logger.warning(f"[{REQUEST_ID}] Important column {col} not found")
-        
-        # Log memory usage
-        memory_usage = df.memory_usage(deep=True).sum() / 1024
-        logger.debug(f"[{REQUEST_ID}] DataFrame memory usage: {memory_usage:.2f} KB")
         
         return df
     
     except Exception as e:
-        logger.error(f"[{REQUEST_ID}] Error processing Excel file: {str(e)}", exc_info=True)
-        logger.debug(f"[{REQUEST_ID}] Exception traceback: {traceback.format_exc()}")
+        logger.error(f"Error processing Excel file: {str(e)}")
         raise Exception(f"Error processing Excel file: {str(e)}")
 
 def create_booking_data_from_row(row: pd.Series, row_index: int) -> BookingFormData:
@@ -327,8 +280,6 @@ def create_booking_data_from_row(row: pd.Series, row_index: int) -> BookingFormD
         BookingFormData object
     """
     row_id = f"{REQUEST_ID}-R{row_index}"
-    logger.info(f"[{row_id}] Processing row {row_index}")
-    logger.debug(f"[{row_id}] Row data: {row.to_dict()}")
     
     # Extract values, handling missing data and handling column name variations
     def get_value(fields, default=""):
@@ -339,111 +290,89 @@ def create_booking_data_from_row(row: pd.Series, row_index: int) -> BookingFormD
         for field in fields:
             if field in row and not pd.isna(row[field]):
                 value = row[field]
-                logger.debug(f"[{row_id}] Found value for field '{field}': {value}")
                 return value
         
-        logger.debug(f"[{row_id}] No value found for fields {fields}, using default: {default}")
         return default
     
     # Handle numeric conversions
     def safe_numeric(value, default=0):
         try:
-            logger.debug(f"[{row_id}] Converting '{value}' to numeric")
             if pd.isna(value):
-                logger.debug(f"[{row_id}] Value is NA, using default: {default}")
                 return default
             result = float(value)
-            logger.debug(f"[{row_id}] Converted to: {result}")
             return result
-        except Exception as e:
-            logger.warning(f"[{row_id}] Error converting '{value}' to numeric: {str(e)}")
-            logger.debug(f"[{row_id}] Exception details: {traceback.format_exc()}")
+        except Exception:
             return default
     
     # Log key values and available columns
-    logger.debug(f"[{row_id}] Available columns in row: {row.index.tolist()}")
     po_number = get_value(["PO Number", "Po Number", "po_number"])
-    logger.info(f"[{row_id}] Processing order with PO Number: {po_number}")
     
     # Create the booking data object with the new structure
     try:
-        logger.debug(f"[{row_id}] Extracting data for all fields")
-        
         # Match the template column names
-        primary_contact = get_value(["Primary Contact", "primary_contact"])
-        contact_email = get_value(["Contact Email", "Origin Email", "contact_email"])
-        contact_phone = get_value(["Contact Phone", "contact_phone"])
+        primary_contact = get_value(["Primary Contact", "primary_contact", "Contact Name"])
+        contact_email = get_value(["Contact Email", "Origin Email", "contact_email", "Email Address"])
+        contact_phone = get_value(["Contact Phone", "contact_phone", "Phone Number"])
         
         # Date fields
-        goods_completion_date = get_value(["Goods Completion Date", "goods_completion_date"])
-        delivery_date = get_value(["Delivery Date", "delivery_date"])
+        goods_completion_date = get_value(["Goods Completion Date", "goods_completion_date", "Ready Date"])
+        delivery_date = get_value(["Delivery Date", "delivery_date", "Required By Date"])
         
         # Commodity information
-        hs_code = get_value(["Commodity HS Code", "HS Code", "hs_code"])
-        goods_description = get_value(["Goods Description", "goods_description"])
+        hs_code = get_value(["Commodity HS Code", "HS Code", "hs_code", "Harmonized Code"])
+        goods_description = get_value(["Goods Description", "goods_description", "Cargo Description"])
         
         # Container information - handle up to 3 container types from template
-        container_type = get_value(["Container Type 1", "Container Type", "container_type"])
+        container_type = get_value(["Container Type 1", "Container Type", "container_type", "Equipment Type"])
         
         # Numeric values with logging
-        container_count_raw = get_value(["Container Count 1", "Container Count", "container_count"], 1)
-        logger.debug(f"[{row_id}] Raw container count: {container_count_raw}")
+        container_count_raw = get_value(["Container Count 1", "Container Count", "container_count", "Equipment Quantity"], 1)
         container_count = int(safe_numeric(container_count_raw, 1))
-        logger.debug(f"[{row_id}] Processed container count: {container_count}")
         
         # Additional containers (if present)
-        container_type_2 = get_value(["Container Type 2 (optional)"])
-        container_count_2_raw = get_value(["Container Count 2 (optional)"])
+        container_type_2 = get_value(["Container Type 2 (optional)", "Equipment Type 2"])
+        container_count_2_raw = get_value(["Container Count 2 (optional)", "Equipment Quantity 2"])
         container_count_2 = int(safe_numeric(container_count_2_raw)) if container_count_2_raw else None
         
-        container_type_3 = get_value(["Container Type 3 (optional)"])
-        container_count_3_raw = get_value(["Container Count 3 (optional)"])
+        container_type_3 = get_value(["Container Type 3 (optional)", "Equipment Type 3"])
+        container_count_3_raw = get_value(["Container Count 3 (optional)", "Equipment Quantity 3"])
         container_count_3 = int(safe_numeric(container_count_3_raw)) if container_count_3_raw else None
-        
-        # Log additional container info if present
-        if container_type_2 or container_count_2:
-            logger.debug(f"[{row_id}] Additional container 2: Type={container_type_2}, Count={container_count_2}")
-        if container_type_3 or container_count_3:
-            logger.debug(f"[{row_id}] Additional container 3: Type={container_type_3}, Count={container_count_3}")
         
         # Weight information
         weight_raw = get_value([
             "Estimate Gross Weight per Container (optional)",
             "Estimate Cargo Gross Weight", 
-            "estimate_cargo_gross_weight"
+            "estimate_cargo_gross_weight",
+            "Cargo Weight (kg)"
         ])
-        logger.debug(f"[{row_id}] Raw cargo weight: {weight_raw}")
         weight = safe_numeric(weight_raw)
-        logger.debug(f"[{row_id}] Processed cargo weight: {weight}")
         
         # Address and contact information
-        origin_address = get_value(["Pickup Address", "Origin Address", "origin_address"])
-        origin_contact = get_value(["Origin Contact", "origin_contact"])
-        origin_phone = get_value(["Origin Phone", "origin_phone"])
+        origin_address = get_value(["Pickup Address", "Origin Address", "origin_address", "Origin Location"])
+        origin_contact = get_value(["Origin Contact", "origin_contact", "Origin Contact Name"])
+        origin_phone = get_value(["Origin Phone", "origin_phone", "Origin Contact Phone"])
         
-        destination_address = get_value(["Delivery Address", "Destination Address", "destination_address"])
-        destination_contact = get_value(["Destination Contact", "destination_contact"])
-        destination_phone = get_value(["Destination Phone", "destination_phone"])
+        destination_address = get_value(["Delivery Address", "Destination Address", "destination_address", "Destination Location"])
+        destination_contact = get_value(["Destination Contact", "destination_contact", "Destination Contact Name"])
+        destination_phone = get_value(["Destination Phone", "destination_phone", "Destination Contact Phone"])
         
         # Port information
-        pol_code = get_value(["POL (Port Code)"])
-        pod_code = get_value(["POD (Port Code)"])
-        
-        if pol_code:
-            logger.debug(f"[{row_id}] Using POL code from template: {pol_code}")
-        if pod_code:
-            logger.debug(f"[{row_id}] Using POD code from template: {pod_code}")
+        pol_code = get_value(["POL (Port Code)", "Origin Port Code", "Port of Loading"])
+        pod_code = get_value(["POD (Port Code)", "Destination Port Code", "Port of Discharge"])
         
         # Other details
-        special_instructions = get_value(["Special Instructions (optional)", "Special Instructions", "special_instructions"])
-        hazardous = get_value(["Hazardous", "hazardous"], "No")
+        special_instructions = get_value(["Special Instructions (optional)", "Special Instructions", "special_instructions", "Additional Notes"])
+        hazardous = get_value(["Hazardous", "hazardous", "Dangerous Goods"], "No")
         
         # Incoterms
-        incoterms = get_value(["Incoterms"])
-        if incoterms:
-            logger.debug(f"[{row_id}] Using incoterms from template: {incoterms}")
+        incoterms = get_value(["Incoterms", "Trade Terms"])
         
-        logger.debug(f"[{row_id}] Creating BookingFormData object with extracted values")
+        # New field: Shipping Service Type
+        service_type = get_value(["Shipping Service", "Service Type", "Mode of Transport"])
+        
+        # New field: Booking Agent
+        booking_agent = get_value(["Booking Agent", "Agent", "Freight Agent"])
+        
         booking_data = BookingFormData(
             primary_contact=primary_contact,
             contact_email=contact_email,
@@ -480,31 +409,22 @@ def create_booking_data_from_row(row: pd.Series, row_index: int) -> BookingFormD
         # Override incoterms if provided
         if incoterms:
             booking_data.incoterms = incoterms
-        
-        # Log key shipping details
-        total_containers = container_count
-        if container_count_2:
-            total_containers += container_count_2
-        if container_count_3:
-            total_containers += container_count_3
             
-        container_summary = f"{container_type}×{container_count}"
-        if container_type_2 and container_count_2:
-            container_summary += f", {container_type_2}×{container_count_2}"
-        if container_type_3 and container_count_3:
-            container_summary += f", {container_type_3}×{container_count_3}"
+        # Set service type if provided
+        if service_type:
+            booking_data.service = service_type
             
-        logger.info(f"[{row_id}] Order details - Origin: {booking_data.pol}, Destination: {booking_data.pod}, " +
-                  f"Containers: {container_summary}, Total: {total_containers}")
-        
-        # Log all key fields
-        data_dict = booking_data.to_dict()
-        logger.debug(f"[{row_id}] Complete booking data object: {json.dumps(data_dict, default=str)}")
+        # Store booking agent in special instructions if provided
+        if booking_agent:
+            original_instructions = booking_data.message or ""
+            if original_instructions:
+                booking_data.message = f"Booking Agent: {booking_agent}\n\n{original_instructions}"
+            else:
+                booking_data.message = f"Booking Agent: {booking_agent}"
         
         return booking_data
     except Exception as e:
-        logger.error(f"[{row_id}] Error creating booking data: {str(e)}", exc_info=True)
-        logger.debug(f"[{row_id}] Exception traceback: {traceback.format_exc()}")
+        logger.error(f"[{row_id}] Error creating booking data for row {row_index}: {str(e)}")
         raise Exception(f"Error creating booking data for row {row_index}: {str(e)}")
 
 def validate_booking_data(booking_data: BookingFormData, row_id: str) -> Tuple[bool, str]:
@@ -518,9 +438,6 @@ def validate_booking_data(booking_data: BookingFormData, row_id: str) -> Tuple[b
     Returns:
         Tuple of (is_valid, error_message)
     """
-    logger.info(f"[{row_id}] Validating booking data")
-    logger.debug(f"[{row_id}] Validation starting for PO: {booking_data.poNumber}")
-    
     # Check required fields
     required_fields = {
         "poNumber": booking_data.poNumber,
@@ -534,64 +451,39 @@ def validate_booking_data(booking_data: BookingFormData, row_id: str) -> Tuple[b
         "goodsRequiredDateISO": booking_data.goodsRequiredDateISO
     }
     
-    # Log all field values
-    for field, value in required_fields.items():
-        logger.debug(f"[{row_id}] Field '{field}' value: '{value}' (type: {type(value)})")
-    
     # Check for missing fields
     missing_fields = [field for field, value in required_fields.items() if not value]
-    logger.debug(f"[{row_id}] Missing fields check result: {missing_fields}")
     
     if missing_fields:
         error_msg = f"Missing required fields: {', '.join(missing_fields)}"
-        logger.warning(f"[{row_id}] Validation failed: {error_msg}")
         return False, error_msg
     
     # Validate email format
-    logger.debug(f"[{row_id}] Validating email format: {booking_data.factoryEmail}")
     if booking_data.factoryEmail and "@" not in booking_data.factoryEmail:
         error_msg = "Invalid email format for factoryEmail"
-        logger.warning(f"[{row_id}] Validation failed: {error_msg} (value: {booking_data.factoryEmail})")
         return False, error_msg
     
     # Validate container details
-    logger.debug(f"[{row_id}] Validating container details: {booking_data.containerDetails}")
     if not booking_data.containerDetails or not booking_data.containerDetails.get("containers"):
         error_msg = "Missing container details"
-        logger.warning(f"[{row_id}] Validation failed: {error_msg}")
         return False, error_msg
     
     # Validate container type
     container_type = booking_data.containerDetails["containers"][0].get("containerType")
-    logger.debug(f"[{row_id}] Container type: {container_type}")
     if not container_type:
         error_msg = "Missing container type"
-        logger.warning(f"[{row_id}] Validation failed: {error_msg}")
         return False, error_msg
     
-    # Validate dates
-    try:
-        logger.debug(f"[{row_id}] Validating date formats")
-        for date_field, date_value in {
-            "cargoReadyDateISO": booking_data.cargoReadyDateISO,
-            "goodsRequiredDateISO": booking_data.goodsRequiredDateISO
-        }.items():
-            if isinstance(date_value, str) and not date_value.startswith("20"):
-                logger.warning(f"[{row_id}] Potentially invalid date format for {date_field}: {date_value}")
-    except Exception as e:
-        logger.debug(f"[{row_id}] Date validation error: {str(e)}")
-    
     # All validations passed
-    logger.info(f"[{row_id}] Validation successful")
     return True, ""
 
 
-def process_booking(booking_data: Dict[str, Any], api_url: str, auth_token: str, row_id: str) -> Dict[str, Any]:
+def process_booking(booking_data: BookingFormData, api_url: str, auth_token: str, row_id: str) -> Dict[str, Any]:
     """
     Submit the booking data to the API.
     
     Args:
-        booking_data: Dictionary of booking data
+        booking_data: BookingFormData object
         api_url: URL of the API endpoint
         auth_token: Authentication token for API access
         row_id: Unique ID for the row being processed (for logging)
@@ -599,164 +491,87 @@ def process_booking(booking_data: Dict[str, Any], api_url: str, auth_token: str,
     Returns:
         Dictionary with the API response or error information
     """
-    logger.info(f"[{row_id}] Submitting booking to API: {api_url}")
-    logger.debug(f"[{row_id}] PO Number: {booking_data.get('poNumber', 'unknown')}")
+    # Generate both standard and extended payload
+    standard_payload = booking_data.to_dict()
+    extended_payload = booking_data.to_dict_extended()
     
-    try:
-        # First, validate the booking data structure before sending
-        logger.debug(f"[{row_id}] Pre-request validation of booking data structure")
-        required_keys = ["poNumber", "factoryEmail", "pickupAddress", "deliveryAddress", "containerDetails"]
-        missing_keys = [key for key in required_keys if key not in booking_data]
-        if missing_keys:
-            logger.warning(f"[{row_id}] Missing required keys in booking data: {missing_keys}")
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {auth_token[:5]}..." if auth_token else "None"  # Log only first few chars for security
-        }
-        logger.debug(f"[{row_id}] Request headers prepared")
-        
-        # Log the request details (excluding sensitive data)
-        safe_booking_data = booking_data.copy()
-        if "customerCode" in safe_booking_data:
-            safe_booking_data["customerCode"] = f"{safe_booking_data['customerCode'][:3]}..." if safe_booking_data["customerCode"] else None
-        if "factoryEmail" in safe_booking_data:
-            email = safe_booking_data["factoryEmail"]
-            if email and isinstance(email, str) and "@" in email:
-                parts = email.split("@")
-                safe_booking_data["factoryEmail"] = f"{parts[0][:3]}...@{parts[1]}"
-        
-        logger.info(f"[{row_id}] API Request Headers: {headers}")
-        logger.debug(f"[{row_id}] API Request Body (sanitized): {json.dumps(safe_booking_data, default=str)}")
-        
-        # Check JSON validity before sending
+    # Only log the payloads (as requested)
+    po_number = standard_payload.get("po_number", "unknown")
+    logger.info(f"ROW {row_id} - STANDARD PAYLOAD: {json.dumps(standard_payload, default=str)}")
+    logger.info(f"ROW {row_id} - EXTENDED PAYLOAD: {json.dumps(extended_payload, default=str)}")
+    
+    results = []
+    
+    # Process both payloads
+    for payload_type, payload in [("standard", standard_payload), ("extended", extended_payload)]:
         try:
-            json_data = json.dumps(booking_data)
-            logger.debug(f"[{row_id}] JSON serialization successful, size: {len(json_data)} bytes")
-        except Exception as e:
-            logger.error(f"[{row_id}] JSON serialization error: {str(e)}")
-            logger.debug(f"[{row_id}] Problem data: {str(booking_data)[:200]}")
-        
-        # Send the request
-        logger.debug(f"[{row_id}] Sending API request to {api_url}")
-        start_time = datetime.now()
-        try:
+            # Prepare headers
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {auth_token}" if auth_token else "",
+                "X-Payload-Type": payload_type
+            }
+            
+            # Send the request
             response = requests.post(
                 api_url,
                 headers=headers,
-                json=booking_data,
-                timeout=30  # 30-second timeout
+                json=payload,
+                timeout=30
             )
-            logger.debug(f"[{row_id}] Request sent successfully")
-        except Exception as e:
-            logger.error(f"[{row_id}] Error during request.post: {str(e)}")
-            logger.debug(f"[{row_id}] Request exception details: {traceback.format_exc()}")
-            raise
             
-        end_time = datetime.now()
-        duration_ms = (end_time - start_time).total_seconds() * 1000
-        
-        logger.info(f"[{row_id}] API Response received in {duration_ms:.2f}ms with status code: {response.status_code}")
-        logger.debug(f"[{row_id}] Response headers: {dict(response.headers)}")
-        
-        # Check if the request was successful
-        if response.status_code >= 200 and response.status_code < 300:
-            logger.debug(f"[{row_id}] Successful status code: {response.status_code}")
-            
-            # Try to parse the JSON response
-            try:
-                response_data = response.json()
-                logger.debug(f"[{row_id}] Response JSON parsed successfully")
-            except json.JSONDecodeError as e:
-                logger.error(f"[{row_id}] Failed to parse JSON response: {str(e)}")
-                logger.debug(f"[{row_id}] Raw response content: {response.text[:500]}")
-                response_data = {"raw_text": response.text[:500] + "..." if len(response.text) > 500 else response.text}
-            
-            # Log response summary (avoiding sensitive data)
-            if isinstance(response_data, dict):
-                shipment_id = response_data.get("data", {}).get("shipmentId", "unknown")
-                success = response_data.get("success", False)
-                logger.info(f"[{row_id}] API call successful: shipment_id={shipment_id}, success={success}")
+            # Process response
+            if response.status_code >= 200 and response.status_code < 300:
+                try:
+                    response_data = response.json()
+                except json.JSONDecodeError:
+                    response_data = {"raw_text": response.text[:200]}
                 
-                # Log any warnings or messages from the API
-                if "warnings" in response_data:
-                    logger.warning(f"[{row_id}] API returned warnings: {response_data['warnings']}")
-                if "message" in response_data:
-                    logger.info(f"[{row_id}] API message: {response_data['message']}")
+                results.append({
+                    "payload_type": payload_type,
+                    "success": True,
+                    "status_code": response.status_code,
+                    "data": response_data,
+                    "po_number": po_number
+                })
             else:
-                logger.info(f"[{row_id}] API call successful but response format unexpected (type: {type(response_data)})")
-            
-            logger.debug(f"[{row_id}] Creating success response object")
-            return {
-                "success": True,
-                "status_code": response.status_code,
-                "data": response_data,
-                "duration_ms": duration_ms,
-                "po_number": booking_data.get("poNumber", "unknown")  # Add PO number for tracking
-            }
-        else:
-            logger.warning(f"[{row_id}] Error status code: {response.status_code}")
-            
-            # Handle error response
-            error_data = {}
-            try:
-                error_data = response.json()
-                logger.error(f"[{row_id}] API error response: {json.dumps(error_data)}")
-                logger.debug(f"[{row_id}] Detailed error response: {error_data}")
-            except json.JSONDecodeError:
-                error_text = response.text[:200] + "..." if len(response.text) > 200 else response.text
-                error_data = {"message": error_text}
-                logger.error(f"[{row_id}] API error (non-JSON response): {error_text}")
-                logger.debug(f"[{row_id}] Full error response text: {response.text}")
+                # Handle error response
+                try:
+                    error_data = response.json()
+                except json.JSONDecodeError:
+                    error_data = {"message": response.text[:200]}
+                    
+                results.append({
+                    "payload_type": payload_type,
+                    "success": False,
+                    "status_code": response.status_code,
+                    "error": error_data,
+                    "po_number": po_number
+                })
                 
-            logger.debug(f"[{row_id}] Creating error response object")
-            return {
+        except Exception as e:
+            results.append({
+                "payload_type": payload_type,
                 "success": False,
-                "status_code": response.status_code,
-                "error": error_data,
-                "duration_ms": duration_ms,
-                "po_number": booking_data.get("poNumber", "unknown")  # Add PO number for tracking
-            }
-            
-    except requests.exceptions.Timeout:
-        error_msg = "API request timed out after 30 seconds"
-        logger.error(f"[{row_id}] {error_msg}")
-        logger.debug(f"[{row_id}] Timeout occurred when calling {api_url}")
-        return {
-            "success": False,
-            "status_code": 408,
-            "error": {"message": error_msg},
-            "po_number": booking_data.get("poNumber", "unknown")
-        }
-    except requests.exceptions.ConnectionError as e:
-        error_msg = f"Connection error: {str(e)}"
-        logger.error(f"[{row_id}] {error_msg}")
-        logger.debug(f"[{row_id}] Connection error details: {traceback.format_exc()}")
-        return {
-            "success": False,
-            "status_code": 500,
-            "error": {"message": error_msg},
-            "po_number": booking_data.get("poNumber", "unknown")
-        }
-    except Exception as e:
-        error_msg = f"Error processing booking: {str(e)}"
-        logger.error(f"[{row_id}] {error_msg}", exc_info=True)
-        logger.debug(f"[{row_id}] Detailed exception: {traceback.format_exc()}")
-        return {
-            "success": False,
-            "status_code": 500,
-            "error": {"message": error_msg},
-            "po_number": booking_data.get("poNumber", "unknown")
-        }
-        
+                "status_code": 500,
+                "error": {"message": f"Error: {str(e)}"},
+                "po_number": po_number
+            })
+    
+    # Return combined results
+    return {
+        "standard": next((r for r in results if r["payload_type"] == "standard"), None),
+        "extended": next((r for r in results if r["payload_type"] == "extended"), None),
+        "success": any(r["success"] for r in results),
+        "po_number": po_number
+    }
+
 def main():
     parser = argparse.ArgumentParser(description='Process Excel file and submit booking data to API')
     parser.add_argument('excel_file', help='Path to the Excel file to process')
     parser.add_argument('--api-url', required=True, help='URL for the API endpoint')
     parser.add_argument('--auth-token', help='Authentication token for API access')
     args = parser.parse_args()
-    
-    logger.info(f"Processing Excel file: {args.excel_file}")
     
     # Check if file exists
     if not os.path.exists(args.excel_file):
@@ -770,7 +585,6 @@ def main():
             
         # Process the Excel file
         df = process_excel_file(file_content)
-        logger.info(f"Successfully processed Excel file with {len(df)} rows")
         
         # Process each row
         results = []
@@ -784,7 +598,7 @@ def main():
                 # Validate booking data
                 is_valid, error_msg = validate_booking_data(booking_data, row_id)
                 if not is_valid:
-                    logger.error(f"[{row_id}] Invalid booking data: {error_msg}")
+                    logger.error(f"Invalid booking data: {error_msg}")
                     results.append({
                         "row": index, 
                         "po_number": booking_data.poNumber, 
@@ -795,14 +609,13 @@ def main():
                 
                 # Submit booking
                 if args.api_url:
-                    response = process_booking(booking_data.to_dict(), args.api_url, args.auth_token, row_id)
+                    response = process_booking(booking_data, args.api_url, args.auth_token, row_id)
                     results.append({
                         "row": index, 
-                        "po_number": booking_data.poNumber, 
+                        "po_number": response.get("po_number", "unknown"), 
                         "success": response.get("success", False),
-                        "status_code": response.get("status_code"),
-                        "error": response.get("error"),
-                        "data": response.get("data")
+                        "status_code": response.get("standard", {}).get("status_code"),
+                        "error": response.get("standard", {}).get("error")
                     })
                 else:
                     # Dry run - just validate without submitting
@@ -813,7 +626,7 @@ def main():
                         "status": "validated but not submitted (dry run)"
                     })
             except Exception as e:
-                logger.error(f"[{row_id}] Error processing row {index}: {str(e)}", exc_info=True)
+                logger.error(f"Error processing row {index}: {str(e)}")
                 results.append({
                     "row": index, 
                     "success": False, 
@@ -826,7 +639,7 @@ def main():
         
         return 0
     except Exception as e:
-        logger.error(f"Error in main execution: {str(e)}", exc_info=True)
+        logger.error(f"Error in main execution: {str(e)}")
         return 1
 
 if __name__ == "__main__":
